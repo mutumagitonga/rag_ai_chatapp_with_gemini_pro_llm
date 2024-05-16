@@ -6,8 +6,11 @@ from pypdf import PdfReader
 
 import google.generativeai as genai
 from chromadb import Documents, EmbeddingFunction, Embeddings
+import chromadb
+from typing import List
 
 load_dotenv()
+
 
 #########################
 # STAGE 1: INDEXING DATA #
@@ -33,7 +36,7 @@ def read_and_extract_text_from_pdf(file_path):
 
 
 # Call the text scrape & read function
-extracted_pdf_text = read_and_extract_text_from_pdf(file_path="./docs/state_of_the_union.pdf")
+extracted_pdf_text = read_and_extract_text_from_pdf(file_path="docs/input_text/state_of_the_union.pdf")
 
 
 # => Part 1.2: Splitting data
@@ -66,7 +69,7 @@ paragraph_chunks = split_text_corpus_every_paragraph(text_corpus=extracted_pdf_t
 # Reference: https://cookbook.chromadb.dev/embeddings/bring-your-own-embeddings/
 class GeminiEmbeddingFunction(EmbeddingFunction):
     # TODO: Add return type to __call__ method
-    def __call__(self, text_chunk: Documents):
+    def __call__(self, input: Documents):
         gemini_api_key = os.environ.get("GEMINI_API_KEY")
         if not gemini_api_key:
             raise ValueError("Gemini API key not found. Please provide one!")
@@ -74,9 +77,38 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
         model = 'models/embedding-001'
         title = 'Custom prompt'
         text_embeddings = genai.embed_content(model=model,
-                                              content=text_chunk,
+                                              content=input,
                                               task_type='retrieval_document',
                                               title=title)['embedding']
         return text_embeddings
 
+
+# => Part 1.4: Store Embeddings
+# Here, a chromadb client is defined & stores text_embeddings persistently in a defined filepath
+def create_chroma_vector_db(documents: List, path: str, collection_name: str):
+    """
+    Creates Chromadb loaded with the document embeddings collection at specified path, named with the provided name arg
+    :param documents: Documents iterable with text chunks to be converted to embeddings & added to the Chromadb
+    :param path: Filepath where the Chromadb shall be stored
+    :param collection_name: Name of the created vector embeddings collection added to the Chromadb
+    :return: A tuple containing the created Chroma collection & its name
+    """
+    chromadb_client = chromadb.PersistentClient(path=path)
+
+    # Check if collection_name already exists in the list of collections
+    is_present = any(collection.name == collection_name for collection in chromadb_client.list_collections())
+
+    if not is_present:
+        db = chromadb_client.create_collection(name=collection_name, embedding_function=GeminiEmbeddingFunction())
+
+        for idx, doc in enumerate(documents):
+            db.add(documents=doc, ids=str(idx))
+        return db, collection_name
+    else:
+        return None, None  # Return none if the collection already exists
+
+
+chroma_collection, name = create_chroma_vector_db(documents=paragraph_chunks,
+                                                  path='./docs/chromadb_collections',
+                                                  collection_name='state_of_union')
 
