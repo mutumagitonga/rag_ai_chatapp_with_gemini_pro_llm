@@ -1,3 +1,4 @@
 venv/
 .env
 .idea/
+docs/chromadb_collections/*
