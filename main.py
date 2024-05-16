@@ -4,9 +4,10 @@ import re
 from dotenv import load_dotenv
 from pypdf import PdfReader
 
-load_dotenv()
+import google.generativeai as genai
+from chromadb import Documents, EmbeddingFunction, Embeddings
 
-gemini_api_key = os.environ.get("GEMINI_API_KEY")
+load_dotenv()
 
 #########################
 # STAGE 1: INDEXING DATA #
@@ -54,3 +55,28 @@ def split_text_corpus_every_paragraph(text_corpus):
 
 # Call the paragraph-splitting function to return a list of paragraph strings
 paragraph_chunks = split_text_corpus_every_paragraph(text_corpus=extracted_pdf_text)
+
+
+# => Part 1.3: Create Embeddings
+# Embeddings: Vector representations of the text to enable math operations
+# Text embedding tool: An embedding class (extends chromadb embed func.) that makes API calls to Gemini embedding model
+# The embedding class: Also used by chromadb vector DB client for indexing & querying.
+
+
+# Reference: https://cookbook.chromadb.dev/embeddings/bring-your-own-embeddings/
+class GeminiEmbeddingFunction(EmbeddingFunction):
+    # TODO: Add return type to __call__ method
+    def __call__(self, text_chunk: Documents):
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            raise ValueError("Gemini API key not found. Please provide one!")
+        genai.configure(api_key=gemini_api_key)
+        model = 'models/embedding-001'
+        title = 'Custom prompt'
+        text_embeddings = genai.embed_content(model=model,
+                                              content=text_chunk,
+                                              task_type='retrieval_document',
+                                              title=title)['embedding']
+        return text_embeddings
+
+
