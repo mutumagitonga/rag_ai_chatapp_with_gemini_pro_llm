@@ -83,7 +83,7 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
         return text_embeddings
 
 
-# => Part 1.4: Store Embeddings
+# => Part 1.4: Create & Store Embeddings
 # Here, a chromadb client is defined & stores text_embeddings persistently in a defined filepath
 def create_chroma_vector_db(documents: List, path: str, collection_name: str):
     """
@@ -111,4 +111,13 @@ def create_chroma_vector_db(documents: List, path: str, collection_name: str):
 chroma_collection, name = create_chroma_vector_db(documents=paragraph_chunks,
                                                   path='./docs/chromadb_collections',
                                                   collection_name='state_of_union')
+
+
+# => Part 1.5: Chromadb collection loader
+# This function uses a chromadb client to get/load an already created ChromaDB collection from DB using its name
+def read_chroma_vector_db_collection(path, collection_name):
+    chromadb_client = chromadb.PersistentClient(path=path)
+    found_db = chromadb_client.get_collection(name=collection_name, embedding_function=GeminiEmbeddingFunction())
+
+    return found_db
 
