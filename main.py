@@ -83,6 +83,22 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
         return text_embeddings
 
 
+# => Part 1.5: Chromadb collection loader
+# DEFINE LOADER BEFORE CREATOR function to LOAD any EXISTING CHROMADB COLLECTIONS in create function
+# This function uses a chromadb client to get/load an already created ChromaDB collection from DB using its name
+def read_chroma_vector_db_collection(path, collection_name):
+    try:
+        chromadb_client = chromadb.PersistentClient(path=path)
+        found_db = chromadb_client.get_collection(name=collection_name, embedding_function=GeminiEmbeddingFunction())
+        return found_db
+    except ValueError:
+        print(f"Collection {collection_name} does not exist.")
+
+
+# my_vec_db = read_chroma_vector_db_collection(path='./docs/chromadb_collections', collection_name='state_of_union')
+# print(my_vec_db)
+
+
 # => Part 1.4: Create & Store Embeddings
 # Here, a chromadb client is defined & stores text_embeddings persistently in a defined filepath
 def create_chroma_vector_db(documents: List, path: str, collection_name: str):
@@ -103,21 +119,15 @@ def create_chroma_vector_db(documents: List, path: str, collection_name: str):
 
         for idx, doc in enumerate(documents):
             db.add(documents=doc, ids=str(idx))
+        # print(db)
         return db, collection_name
     else:
-        return None, None  # Return none if the collection already exists
+        found_db = read_chroma_vector_db_collection(path='./docs/chromadb_collections',
+                                                    collection_name=collection_name)
+        return found_db, found_db.name  # Return none if the collection already exists
 
 
 chroma_collection, name = create_chroma_vector_db(documents=paragraph_chunks,
                                                   path='./docs/chromadb_collections',
                                                   collection_name='state_of_union')
-
-
-# => Part 1.5: Chromadb collection loader
-# This function uses a chromadb client to get/load an already created ChromaDB collection from DB using its name
-def read_chroma_vector_db_collection(path, collection_name):
-    chromadb_client = chromadb.PersistentClient(path=path)
-    found_db = chromadb_client.get_collection(name=collection_name, embedding_function=GeminiEmbeddingFunction())
-
-    return found_db
 
