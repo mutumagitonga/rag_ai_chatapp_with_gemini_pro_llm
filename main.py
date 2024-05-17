@@ -6,6 +6,7 @@ from pypdf import PdfReader
 import pandas as pd
 
 import google.generativeai as genai
+from google.generativeai import GenerationConfig
 from chromadb import Documents, EmbeddingFunction, Embeddings
 import chromadb
 from typing import List
@@ -145,30 +146,60 @@ def get_relevant_text_passage(query, db, n_results):
     return relevant_passage
 
 
-question = "What are some sanctions on Russia"
-relevant_text_chunk = get_relevant_text_passage(query=question, db=union_db, n_results=6)
-print(relevant_text_chunk)
+# question = "What are some sanctions on Russia"
+# relevant_text_chunk = get_relevant_text_passage(query=question, db=union_db, n_results=6)
+# print(relevant_text_chunk)
 
-
-# => Part 2.2: Generating answer using Augmented prompt
+####
+# => Part 2.2: Generating answer using Augmented prompt  ###
+####
 # (User query + Relevant text chunks) = augmented prompt -> Gemini Pro LLM = Context aware final response
 
 # => Part 2.2.1: Define the prompt template
-def rag_prompt_template(query, relevant_text):
+def rag_augmented_prompt_template(query, relevant_text):
     cleaned_text = relevant_text.replace("'", "").replace('"', '').replace("\n", " ")
     prompt = (
         f"""
         Your are a helpful assistant that answers user queries based on the the contextual knowledge provided in the 
-        reference text appended below. Please provide very detailed responses in grammatically correct sentences
-        relying on the background information. Also, let your responses be simple, comprehensive yet authentic since 
+        reference text appended below. Please provide plausible responses in grammatically correct sentences
+        relying on the background information. Also, let your responses be simple since 
         your audience does not have a professional foundation on the matters in question. 
-        If a user question is not related to the relevant text given below, ignore it and politely tell the user that
-        the answer not found in the given context.  
+        If a user question is not at all related to the reference text given below, ignore it and politely inform the 
+        user that you cannot find the answer in the given context.  
         QUESTION: '{query}'
         REFERENCE: '{relevant_text}'
         
         ANSWER:
         """).format(query=query, relevant_text=cleaned_text)
     return prompt
+
+
+# => Part 2.2.2: Function to run the final augmented query
+def generate_final_answer(prompt):
+    if not gemini_api_key:
+        raise ValueError("Gemini API key not found/invalid. Please provide one!")
+    # https://aws.plainenglish.io/mastering-llm-parameters-a-deep-dive-into-temperature-top-k-and-top-p-623b6aa2e6e5
+    config = GenerationConfig(temperature=0.65,
+                              top_p=0.9,  # Cumulative probability of next words. Lower = more predictable
+                              top_k=70)  # No. of words to consider next step. Lower = More predictable
+    model = genai.GenerativeModel('gemini-pro')
+    answer = model.generate_content(prompt, generation_config=config)
+    return answer.text
+
+
+# => Part 2.2.3: Define function to run all tasks sequentially to get answer
+def run_overall_answer_sequence(dbase, query):
+    relevant_text = get_relevant_text_passage(query, dbase, n_results=4)
+    print(relevant_text)
+    augmented_prompt = rag_augmented_prompt_template(query, relevant_text="".join(relevant_text))
+    final_answer = generate_final_answer(augmented_prompt)
+    return final_answer
+
+
+db = read_chroma_vector_db_collection(path='./docs/chromadb_collections', collection_name='state_of_union')
+question = "Explain the sanctions that have been placed on Russia."
+
+complete_answer = run_overall_answer_sequence(db, query=question)
+print(complete_answer)
 
 
