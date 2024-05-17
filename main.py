@@ -147,7 +147,28 @@ def get_relevant_text_passage(query, db, n_results):
 
 question = "What are some sanctions on Russia"
 relevant_text_chunk = get_relevant_text_passage(query=question, db=union_db, n_results=6)
-# print(relevant_text_chunk)
+print(relevant_text_chunk)
 
 
 # => Part 2.2: Generating answer using Augmented prompt
+# (User query + Relevant text chunks) = augmented prompt -> Gemini Pro LLM = Context aware final response
+
+# => Part 2.2.1: Define the prompt template
+def rag_prompt_template(query, relevant_text):
+    cleaned_text = relevant_text.replace("'", "").replace('"', '').replace("\n", " ")
+    prompt = (
+        f"""
+        Your are a helpful assistant that answers user queries based on the the contextual knowledge provided in the 
+        reference text appended below. Please provide very detailed responses in grammatically correct sentences
+        relying on the background information. Also, let your responses be simple, comprehensive yet authentic since 
+        your audience does not have a professional foundation on the matters in question. 
+        If a user question is not related to the relevant text given below, ignore it and politely tell the user that
+        the answer not found in the given context.  
+        QUESTION: '{query}'
+        REFERENCE: '{relevant_text}'
+        
+        ANSWER:
+        """).format(query=query, relevant_text=cleaned_text)
+    return prompt
+
+
