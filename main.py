@@ -3,6 +3,7 @@ import re
 
 from dotenv import load_dotenv
 from pypdf import PdfReader
+import pandas as pd
 
 import google.generativeai as genai
 from chromadb import Documents, EmbeddingFunction, Embeddings
@@ -11,8 +12,11 @@ from typing import List
 
 load_dotenv()
 
+gemini_api_key = os.environ.get("GEMINI_API_KEY")
+genai.configure(api_key=gemini_api_key)
 
-#########################
+
+##########################
 # STAGE 1: INDEXING DATA #
 ##########################
 # => Part 1.1: Loading data
@@ -30,8 +34,9 @@ def read_and_extract_text_from_pdf(file_path):
     # Loop over each page, extract the text, & add it into the text variable
     text = ""
     for page in reader.pages:
-        text += page.extract_text()
-
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text
     return text
 
 
@@ -57,7 +62,11 @@ def split_text_corpus_every_paragraph(text_corpus):
 
 
 # Call the paragraph-splitting function to return a list of paragraph strings
-paragraph_chunks = split_text_corpus_every_paragraph(text_corpus=extracted_pdf_text)
+paragraph_chunks = split_text_corpus_every_paragraph(text_corpus=extracted_pdf_text)  # 197 chunks
+
+# for m in genai.list_models():
+#     if 'embedContent' in m.supported_generation_methods:
+#         print(m.name)  # models/embedding-001 models/text-embedding-004
 
 
 # => Part 1.3: Create Embeddings
@@ -69,12 +78,10 @@ paragraph_chunks = split_text_corpus_every_paragraph(text_corpus=extracted_pdf_t
 # Reference: https://cookbook.chromadb.dev/embeddings/bring-your-own-embeddings/
 class GeminiEmbeddingFunction(EmbeddingFunction):
     # TODO: Add return type to __call__ method
-    def __call__(self, input: Documents):
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    def __call__(self, input: Documents) -> Embeddings:
         if not gemini_api_key:
-            raise ValueError("Gemini API key not found. Please provide one!")
-        genai.configure(api_key=gemini_api_key)
-        model = 'models/embedding-001'
+            raise ValueError("Gemini API key not found/invalid. Please provide one!")
+        model = 'models/text-embedding-004'
         title = 'Custom prompt'
         text_embeddings = genai.embed_content(model=model,
                                               content=input,
@@ -95,13 +102,9 @@ def read_chroma_vector_db_collection(path, collection_name):
         print(f"Collection {collection_name} does not exist.")
 
 
-# my_vec_db = read_chroma_vector_db_collection(path='./docs/chromadb_collections', collection_name='state_of_union')
-# print(my_vec_db)
-
-
 # => Part 1.4: Create & Store Embeddings
 # Here, a chromadb client is defined & stores text_embeddings persistently in a defined filepath
-def create_chroma_vector_db(documents: List, path: str, collection_name: str):
+def create_chroma_vector_db(documents, path, collection_name):
     """
     Creates Chromadb loaded with the document embeddings collection at specified path, named with the provided name arg
     :param documents: Documents iterable with text chunks to be converted to embeddings & added to the Chromadb
@@ -119,15 +122,32 @@ def create_chroma_vector_db(documents: List, path: str, collection_name: str):
 
         for idx, doc in enumerate(documents):
             db.add(documents=doc, ids=str(idx))
-        # print(db)
-        return db, collection_name
+        return db
     else:
         found_db = read_chroma_vector_db_collection(path='./docs/chromadb_collections',
                                                     collection_name=collection_name)
-        return found_db, found_db.name  # Return none if the collection already exists
+        return found_db  # Return the existing collection
 
 
-chroma_collection, name = create_chroma_vector_db(documents=paragraph_chunks,
-                                                  path='./docs/chromadb_collections',
-                                                  collection_name='state_of_union')
+union_db = create_chroma_vector_db(documents=paragraph_chunks,
+                                   path='./docs/chromadb_collections',
+                                   collection_name='state_of_union')
+# print(union_db.count())
+# print(pd.DataFrame(union_db.peek(8)))
 
+
+####################################
+# STAGE 2: RETRIEVAL & GENERATION ##
+####################################
+# => Part 2.1: Retrieving relevant data chunks
+def get_relevant_text_passage(query, db, n_results):
+    relevant_passage = db.query(query_texts=[query], n_results=n_results)['documents'][0]
+    return relevant_passage
+
+
+question = "What are some sanctions on Russia"
+relevant_text_chunk = get_relevant_text_passage(query=question, db=union_db, n_results=6)
+# print(relevant_text_chunk)
+
+
+# => Part 2.2: Generating answer using Augmented prompt
